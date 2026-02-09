@@ -1,0 +1,12 @@
+mt5:
+  server: ""
+  login: 0
+  password: ""
+
+trading:
+  risk_per_trade: 0.1   # 0.5%
+  max_open_trades: 10
+
+data:
+  timeframe: "M5"
+  bars_history: 500
