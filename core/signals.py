@@ -37,6 +37,12 @@ def generate_signals(df_ltf, df_htf, sr_tolerance=0.0015):
     demand_zones = smz[smz["type"] == "demand"][["low", "high"]].values
     supply_zones = smz[smz["type"] == "supply"][["low", "high"]].values
 
+    # Attach zones to df (THIS WAS MISSING)
+    df["demand_zones"] = [demand_zones] * len(df)
+    df["supply_zones"] = [supply_zones] * len(df)
+
+
+
     # Helper functions (ADD THEM HERE)
     def in_demand(price):
         for low, high in demand_zones:
@@ -154,5 +160,6 @@ def generate_signals(df_ltf, df_htf, sr_tolerance=0.0015):
 
     df.loc[df["long_signal"] & df["inside_bar"], "trigger_pattern"] = "inside_bar"
     df.loc[df["short_signal"] & df["inside_bar"], "trigger_pattern"] = "inside_bar"
+
 
     return df

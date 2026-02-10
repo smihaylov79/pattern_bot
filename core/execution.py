@@ -26,7 +26,7 @@ def send_order(symbol: str, direction: str, volume: float, sl: float, tp: float,
         "tp": tp,
         "deviation": 10,
         "magic": 123456,
-        "comment": f"pattern_bot:{last['trigger_pattern']}",
+        "comment": f"{last['trigger_pattern']}",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_FOK,
     }

@@ -50,6 +50,8 @@ class BotEngine:
         df_signals = generate_signals(df_ltf, df_htf)
         last = df_signals.iloc[-1]
 
+        print(last['trigger_pattern'])
+
         # default execution values
         action = "NONE"
         lots = 0
@@ -123,7 +125,9 @@ class BotEngine:
     def execute_trade(self, symbol, direction, df, last):
         if not can_execute(symbol, self.settings):
             return
-        entry = df["close"].iloc[-1]
+        # entry = df["close"].iloc[-1]
+        tick = mt5.symbol_info_tick(symbol)
+        entry = tick.ask if direction == "buy" else tick.bid
         point = mt5.symbol_info(symbol).point
 
         demand_zones = last["demand_zones"]
@@ -155,8 +159,6 @@ class BotEngine:
             else:
                 tp = entry + 2 * (entry - sl)
 
-            stop_pips = (entry - sl) / point
-
         # --- SHORT TRADE ---
         else:
 
@@ -179,12 +181,11 @@ class BotEngine:
             else:
                 tp = entry - 2 * (sl - entry)
 
-            stop_pips = (sl - entry) / point
-
         # risk-based lot size
-        balance = mt5.account_info().balance
-        risk = self.settings["trading"]["risk_per_trade"]
-        lots = calc_lot_size(symbol, balance, risk, stop_pips)
+        balance = mt5.account_info().equity
+        risk_per_trade = self.settings["trading"]["risk_per_trade"]
+
+        lots = calc_lot_size(symbol, balance, risk_per_trade, entry, sl)
 
         send_order(symbol, direction, lots, sl, tp, last)
         return lots, sl, tp
