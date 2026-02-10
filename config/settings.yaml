@@ -4,8 +4,9 @@ mt5:
   password: ""
 
 trading:
-  risk_per_trade: 0.1   # 0.5%
+  risk_per_trade: 0.05   # 0.5%
   max_open_trades: 10
+  equity_limit: 0.7
 
 data:
   timeframe: "M5"

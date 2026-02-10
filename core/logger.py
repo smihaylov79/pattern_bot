@@ -3,6 +3,7 @@ from pathlib import Path
 
 LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "bot.log"
 
+
 def setup_logger():
     logger = logging.getLogger("pattern_bot")
     logger.setLevel(logging.INFO)

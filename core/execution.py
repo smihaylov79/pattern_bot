@@ -9,7 +9,7 @@ def get_account_info():
     return info
 
 
-def send_order(symbol: str, direction: str, volume: float, sl: float, tp: float):
+def send_order(symbol: str, direction: str, volume: float, sl: float, tp: float, last):
     if direction not in ("buy", "sell"):
         raise ValueError("direction must be 'buy' or 'sell'")
 
@@ -26,7 +26,7 @@ def send_order(symbol: str, direction: str, volume: float, sl: float, tp: float)
         "tp": tp,
         "deviation": 10,
         "magic": 123456,
-        "comment": "pattern_bot",
+        "comment": f"pattern_bot:{last['trigger_pattern']}",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_FOK,
     }

@@ -46,3 +46,16 @@ def find_impulse_zones(
                 })
 
     return pd.DataFrame(zones)
+
+
+def in_demand(price):
+    for low, high in demand_zones:
+        if low <= price <= high:
+            return True
+    return False
+
+def in_supply(price):
+    for low, high in supply_zones:
+        if low <= price <= high:
+            return True
+    return False

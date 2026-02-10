@@ -4,7 +4,7 @@ from core.data_feed import get_bars
 from core.candles import add_candle_metrics
 from core.signals import generate_signals
 from core.execution import send_order
-from core.risk import calc_lot_size
+from core.risk import calc_lot_size, can_execute
 import MetaTrader5 as mt5
 from core.logger import setup_logger
 from core.db import get_connection, init_db
@@ -35,6 +35,7 @@ class BotEngine:
             time.sleep(self.sleep_time)
 
     def process_symbol(self, symbol):
+
         df_ltf = get_bars(symbol, self.timeframe, self.bars)
         df_htf = get_bars(symbol, self.htf, self.bars)
 
@@ -58,11 +59,11 @@ class BotEngine:
         # check for signals
         if last["long_signal"]:
             action = "BUY"
-            lots, sl, tp = self.execute_trade(symbol, "buy", df_ltf)
+            lots, sl, tp = self.execute_trade(symbol, "buy", df_ltf, last)
 
         elif last["short_signal"]:
             action = "SELL"
-            lots, sl, tp = self.execute_trade(symbol, "sell", df_ltf)
+            lots, sl, tp = self.execute_trade(symbol, "sell", df_ltf, last)
 
         # unified log entry
         self.logger.info(
@@ -119,24 +120,73 @@ class BotEngine:
         conn.commit()
         conn.close()
 
-    def execute_trade(self, symbol, direction, df):
+    def execute_trade(self, symbol, direction, df, last):
+        if not can_execute(symbol, self.settings):
+            return
         entry = df["close"].iloc[-1]
+        point = mt5.symbol_info(symbol).point
 
+        demand_zones = last["demand_zones"]
+        supply_zones = last["supply_zones"]
+
+        # --- LONG TRADE ---
         if direction == "buy":
-            sl = df["low"].tail(10).min()
-            tp = entry + 2 * (entry - sl)
-            stop_pips = (entry - sl) / mt5.symbol_info(symbol).point
-        else:
-            sl = df["high"].tail(10).max()
-            tp = entry - 2 * (sl - entry)
-            stop_pips = (sl - entry) / mt5.symbol_info(symbol).point
 
+            # 1. SL = below demand zone
+            if last["in_demand"] and len(demand_zones) > 0:
+                # find the nearest demand zone
+                nearest = min(demand_zones, key=lambda z: abs(entry - z[1]))
+                zone_low = nearest[0]
+                sl = zone_low - 2 * point  # small buffer
+            else:
+                # fallback: recent swing low
+                sl = df["low"].tail(10).min()
+
+            # 2. TP = next supply zone
+            if len(supply_zones) > 0:
+                # find supply zone above price
+                above = [z for z in supply_zones if z[0] > entry]
+                if len(above) > 0:
+                    next_supply = min(above, key=lambda z: z[0])
+                    tp = next_supply[0]
+                else:
+                    # fallback: 2R
+                    tp = entry + 2 * (entry - sl)
+            else:
+                tp = entry + 2 * (entry - sl)
+
+            stop_pips = (entry - sl) / point
+
+        # --- SHORT TRADE ---
+        else:
+
+            # 1. SL = above supply zone
+            if last["in_supply"] and len(supply_zones) > 0:
+                nearest = min(supply_zones, key=lambda z: abs(entry - z[0]))
+                zone_high = nearest[1]
+                sl = zone_high + 2 * point
+            else:
+                sl = df["high"].tail(10).max()
+
+            # 2. TP = next demand zone
+            if len(demand_zones) > 0:
+                below = [z for z in demand_zones if z[1] < entry]
+                if len(below) > 0:
+                    next_demand = max(below, key=lambda z: z[1])
+                    tp = next_demand[1]
+                else:
+                    tp = entry - 2 * (sl - entry)
+            else:
+                tp = entry - 2 * (sl - entry)
+
+            stop_pips = (sl - entry) / point
+
+        # risk-based lot size
         balance = mt5.account_info().balance
         risk = self.settings["trading"]["risk_per_trade"]
-
         lots = calc_lot_size(symbol, balance, risk, stop_pips)
 
-        send_order(symbol, direction, lots, sl, tp)
-
+        send_order(symbol, direction, lots, sl, tp, last)
         return lots, sl, tp
+
 
