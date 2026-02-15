@@ -3,19 +3,61 @@ import MetaTrader5 as mt5
 from core.logger import setup_logger
 
 
+# def calc_lot_size(symbol: str, balance: float, risk_per_trade: float, entry: float, sl: float) -> float:
+#     logger = setup_logger()
+#
+#     stop_points = get_stop_distance_points(entry, sl)
+#     if stop_points <= 0:
+#         logger.error(f"{symbol} | Invalid stop distance: {stop_points}")
+#         return 0.0
+#
+#     point_value = get_point_value(symbol)
+#     if point_value <= 0:
+#         logger.error(f"{symbol} | Invalid point_value={point_value}")
+#         return 0.0
+#
+#     risk_amount = balance * risk_per_trade
+#     risk_per_lot = stop_points * point_value
+#
+#     if risk_per_lot <= 0:
+#         logger.error(f"{symbol} | Invalid risk_per_lot={risk_per_lot}")
+#         return 0.0
+#
+#     raw_lots = risk_amount / risk_per_lot
+#
+#     # Safety cap: never allow more than 1 lot on indices/energies/metals
+#     asset = get_asset_class(symbol)
+#     if asset in ["index", "energy", "metal"] and raw_lots > 1:
+#         logger.warning(f"{symbol} | Lot size capped from {raw_lots} to 1.0")
+#         raw_lots = 1.0
+#     if asset == "forex" and raw_lots > 0.1:
+#         logger.warning(f"{symbol} | Forex lot size capped from {raw_lots} to 0.5")
+#         raw_lots = 0.1
+#
+#     normalized = normalize_lot(symbol, raw_lots)
+#     return normalized
+
 def calc_lot_size(symbol: str, balance: float, risk_per_trade: float, entry: float, sl: float) -> float:
     logger = setup_logger()
 
-    stop_points = get_stop_distance_points(entry, sl)
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        logger.error(f"{symbol} | symbol_info failed")
+        return 0.0
+
+    # stop distance in points
+    stop_points = get_stop_distance_points(symbol, entry, sl)
     if stop_points <= 0:
         logger.error(f"{symbol} | Invalid stop distance: {stop_points}")
         return 0.0
 
+    # point value
     point_value = get_point_value(symbol)
     if point_value <= 0:
         logger.error(f"{symbol} | Invalid point_value={point_value}")
         return 0.0
 
+    # risk
     risk_amount = balance * risk_per_trade
     risk_per_lot = stop_points * point_value
 
@@ -25,33 +67,37 @@ def calc_lot_size(symbol: str, balance: float, risk_per_trade: float, entry: flo
 
     raw_lots = risk_amount / risk_per_lot
 
-    # Safety cap: never allow more than 1 lot on indices/energies/metals
+    # asset class caps
     asset = get_asset_class(symbol)
-    if asset in ["index", "energy", "metal"] and raw_lots > 1:
-        logger.warning(f"{symbol} | Lot size capped from {raw_lots} to 1.0")
-        raw_lots = 1.0
-    if asset == "forex" and raw_lots > 0.1:
-        logger.warning(f"{symbol} | Forex lot size capped from {raw_lots} to 0.5")
-        raw_lots = 0.1
 
-    normalized = normalize_lot(symbol, raw_lots)
-    return normalized
+    caps = {
+        "forex": 0.1,
+        "index": 1.0,
+        "metal": 1.0,
+        "energy": 1.0,
+        "crypto": 0.5,
+        "other": 0.1,
+        "stock": 5,
+        "agricultures": 0.1,
+    }
 
+    max_lot = caps.get(asset, 0.1)
+    if raw_lots > max_lot:
+        logger.warning(f"{symbol} | Lot size capped from {raw_lots} to {max_lot}")
+        raw_lots = max_lot
+
+    return normalize_lot(symbol, raw_lots)
 
 
 def get_point_value(symbol: str) -> float:
     info = mt5.symbol_info(symbol)
     if info is None:
-        raise RuntimeError(f"symbol_info failed for {symbol}")
+        return 0.0
 
-    # MT5 gives correct tick_value and tick_size for all assets
-    tick_value = info.trade_tick_value
-    tick_size = info.trade_tick_size
+    if info.trade_tick_size == 0:
+        return 0.0
 
-    # point = 1 full price unit (not pip)
-    point_value = tick_value / tick_size
-    return point_value
-
+    return info.trade_tick_value / info.trade_tick_size
 
 
 def normalize_lot(symbol: str, lots: float) -> float:
@@ -63,14 +109,25 @@ def normalize_lot(symbol: str, lots: float) -> float:
     max_lot = info.volume_max
     step = info.volume_step
 
-    # clamp
+    # clamp to broker limits
     lots = max(min_lot, min(lots, max_lot))
+
+    # determine number of decimals required by step
+    # e.g. 0.01 -> 2 decimals, 0.001 -> 3 decimals
+    step_str = f"{step:.10f}".rstrip("0")
+    if "." in step_str:
+        decimals = len(step_str.split(".")[1])
+    else:
+        decimals = 0
 
     # round to nearest step
     steps = round(lots / step)
     normalized = steps * step
 
-    return round(normalized, 3)
+    # final rounding to correct decimals
+    normalized = round(normalized, decimals)
+
+    return normalized
 
 
 def can_execute(symbol, settings):
@@ -105,22 +162,35 @@ def can_execute(symbol, settings):
 
 
 def get_asset_class(symbol: str) -> str:
-    symbol = symbol.upper()
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return "other"
 
-    if any(x in symbol for x in ["USD", "JPY", "EUR", "GBP", "AUD", "NZD", "CAD", "CHF"]):
+    path = info.path.lower()
+
+    if "forex" in path:
         return "forex"
-
-    if any(x in symbol for x in ["GERMANY", "JP225", "SP500", "NAS", "DOW"]):
+    if "indices" in path or "index" in path:
         return "index"
-
-    if any(x in symbol for x in ["OIL", "CRUDE", "BRENT", "NGAS"]):
-        return "energy"
-
-    if any(x in symbol for x in ["GOLD", "XAU", "SILVER", "XAG", "COPPER"]):
+    if "metal" in path:
         return "metal"
+    if "energies" in path or "oil" in path or "gas" in path:
+        return "energy"
+    if "crypto" in path:
+        return "crypto"
+    if "stock" in path:
+        return "stock"
+    if "agricultures" in path:
+        return "agricultures"
 
     return "other"
 
 
-def get_stop_distance_points(entry: float, sl: float) -> float:
-    return abs(entry - sl)
+def get_stop_distance_points(symbol: str, entry: float, sl: float) -> float:
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return 0.0
+
+    point = info.point
+    return abs(entry - sl) / point
+

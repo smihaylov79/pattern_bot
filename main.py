@@ -22,14 +22,16 @@ def main():
     settings = load_settings()
     symbols = load_symbols()
 
-    tf_ltf = settings["data"]["timeframe"]
-    tf_htf = "M15"  # later: use HTF_MAP
+    tf = settings["data"]["timeframe"]
+    tf_htf = settings["data"]["htf"]
+    tf_ltf = settings["data"]["ltf"]
     bars = settings["data"]["bars_history"]
 
     bot = BotEngine(
         symbols=symbols,
-        timeframe=tf_ltf,
+        timeframe=tf,
         htf=tf_htf,
+        ltf=tf_ltf,
         bars=bars,
         settings=settings,
         sleep_time=10,

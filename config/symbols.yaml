@@ -1,10 +1,12 @@
 symbols:
   - "[SP500]"
+  - "US100"
+  - "GERMANY40"
+  - "[JP225]"
   - "EURUSD"
   - "USDJPY"
+  - "CADJPY"
   - "CRUDOIL"
   - "NGAS"
-  - "[JP225]"
-  - "GERMANY40"
   - "COPPER"
-
+  - "SILVER"

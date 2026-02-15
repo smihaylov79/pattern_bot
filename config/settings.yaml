@@ -4,10 +4,12 @@ mt5:
   password: ""
 
 trading:
-  risk_per_trade: 0.005   # 0.05%
+  risk_per_trade: 0.05   # 0.05%
   max_open_trades: 10
   equity_limit: 0.7
 
 data:
   timeframe: "M5"
+  htf: "M15"
+  ltf: "M1"
   bars_history: 200
