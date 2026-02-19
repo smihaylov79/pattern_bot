@@ -33,8 +33,8 @@ class BotEngine:
                     self.process_symbol(symbol)
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
-
-            self.monitor_open_positions()
+            if self.settings['trading']['live_monitoring']:
+                self.monitor_open_positions()
             time.sleep(self.sleep_time)
 
     def monitor_open_positions(self):
@@ -223,16 +223,16 @@ class BotEngine:
             return
         self.last_timestamp[symbol] = last_time
 
-        df_signals = generate_signals(df_ltf, df_htf)
+        df_signals = generate_signals(df_ltf, df_htf, symbol)
         last = df_signals.iloc[-1]
 
 
         # default execution values
-        action = "NONE"
-        lots = 0
-        sl = 0
-        tp = 0
-        result = None
+        # action = "NONE"
+        # lots = 0
+        # sl = 0
+        # tp = 0
+        # result = None
 
         # check for signals
         if last["long_signal"]:
@@ -242,23 +242,20 @@ class BotEngine:
         elif last["short_signal"]:
             action = "SELL"
             lots, sl, tp, result = self.execute_trade(symbol, "sell", df_ltf, last)
+        else:
+            action = "NONE"
+            lots = sl = tp = 0
+            result = None
 
-        # unified log entry
-        self.logger.info(
-            f"{symbol} | {self.timeframe} | candle={last_time} | "
-            f"O={df_ltf['open'].iloc[-1]} H={df_ltf['high'].iloc[-1]} "
-            f"L={df_ltf['low'].iloc[-1]} C={df_ltf['close'].iloc[-1]} | "
-            f"bull_eng={last['bullish_engulfing']} | "
-            f"bear_eng={last['bearish_engulfing']} | "
-            f"hammer={last['hammer']} | "
-            f"shooting_star={last['shooting_star']} | "
-            f"inside_bar={last['inside_bar']} | "
-            f"near_sr={last['near_sr']} | "
-            f"long_sig={last['long_signal']} | "
-            f"short_sig={last['short_signal']} | "
-            f"action={action} | lots={lots} | sl={sl} | tp={tp}"
-        )
-        self.log_to_db(symbol, last, df_ltf, action, lots, sl, tp, result)
+        if result is None:
+            result_text = "NO_TRADE"
+        else:
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                result_text = f"EXECUTED: order={result.order}"
+            else:
+                result_text = f"FAILED: retcode={result.retcode}, comment={result.comment}"
+
+        self.log_to_db(symbol, last, df_ltf, action, lots, sl, tp, result_text)
 
     def log_to_db(self, symbol, last, df_ltf, action, lots, sl, tp, result):
         conn = get_connection()
@@ -319,69 +316,154 @@ class BotEngine:
     def execute_trade(self, symbol, direction, df, last):
         if not can_execute(symbol, self.settings):
             return 0, 0, 0
-        # entry = df["close"].iloc[-1]
+
         tick = mt5.symbol_info_tick(symbol)
         entry = tick.ask if direction == "buy" else tick.bid
-        point = mt5.symbol_info(symbol).point
+        info = mt5.symbol_info(symbol)
+        point = info.point
+
+        # --- HTF ATR for structural volatility ---
+
+        atr_htf = calculate_atr(symbol, timeframe=self.ltf, period=14)
+        if atr_htf is None:
+            return 0, 0, 0
+
+        # minimum SL distance in price terms (hybrid: broker + ATR)
+        min_stop_points = info.trade_stops_level * point
+        min_sl_dist = max(min_stop_points, 0.5 * atr_htf)  # 0.5 ATR floor
 
         demand_zones = last["demand_zones"]
         supply_zones = last["supply_zones"]
 
-        # --- LONG TRADE ---
+        # ---------- LONG ----------
         if direction == "buy":
-
-            # 1. SL = below demand zone
+            # 1) Zone-based SL candidate
             if last["in_demand"] and len(demand_zones) > 0:
-                # find the nearest demand zone
                 nearest = min(demand_zones, key=lambda z: abs(entry - z[1]))
                 zone_low = nearest[0]
-                sl = zone_low - 2 * point  # small buffer
+                sl_zone = zone_low - 2 * point
             else:
-                # fallback: recent swing low
-                sl = df["low"].tail(10).min()
+                sl_zone = df["low"].tail(10).min()
 
-            # 2. TP = next supply zone
+            # 2) Enforce ATR/broker minimum distance
+            sl_raw = min(entry - min_sl_dist, sl_zone)
+            sl = min(sl_raw, entry - min_sl_dist)  # ensure at least min_sl_dist away
+
+            # 3) TP: next supply zone or ATR-based
             if len(supply_zones) > 0:
-                # find supply zone above price
                 above = [z for z in supply_zones if z[0] > entry]
                 if len(above) > 0:
                     next_supply = min(above, key=lambda z: z[0])
-                    tp = next_supply[0]
+                    tp_zone = next_supply[0]
                 else:
-                    # fallback: 2R
-                    tp = entry + 2 * (entry - sl)
+                    tp_zone = entry + 2 * (entry - sl)
             else:
-                tp = entry + 2 * (entry - sl)
+                tp_zone = entry + 2 * (entry - sl)
 
-        # --- SHORT TRADE ---
+            # enforce minimum TP distance: at least 1.5 ATR
+            tp_min = entry + 1.5 * atr_htf
+            tp = max(tp_zone, tp_min)
+
+        # ---------- SHORT ----------
         else:
-
-            # 1. SL = above supply zone
             if last["in_supply"] and len(supply_zones) > 0:
                 nearest = min(supply_zones, key=lambda z: abs(entry - z[0]))
                 zone_high = nearest[1]
-                sl = zone_high + 2 * point
+                sl_zone = zone_high + 2 * point
             else:
-                sl = df["high"].tail(10).max()
+                sl_zone = df["high"].tail(10).max()
 
-            # 2. TP = next demand zone
+            sl_raw = max(entry + min_sl_dist, sl_zone)
+            sl = max(sl_raw, entry + min_sl_dist)
+
             if len(demand_zones) > 0:
                 below = [z for z in demand_zones if z[1] < entry]
                 if len(below) > 0:
                     next_demand = max(below, key=lambda z: z[1])
-                    tp = next_demand[1]
+                    tp_zone = next_demand[1]
                 else:
-                    tp = entry - 2 * (sl - entry)
+                    tp_zone = entry - 2 * (sl - entry)
             else:
-                tp = entry - 2 * (sl - entry)
+                tp_zone = entry - 2 * (sl - entry)
 
-        # risk-based lot size
+            tp_min = entry - 1.5 * atr_htf
+            tp = min(tp_zone, tp_min)
+
         balance = mt5.account_info().equity
         risk_per_trade = self.settings["trading"]["risk_per_trade"]
 
         lots = calc_lot_size(symbol, balance, risk_per_trade, entry, sl)
-
         result = send_order(symbol, direction, lots, sl, tp, last)
-        return lots, sl, tp, result.comment
+
+        return lots, sl, tp, result
+
+    # def execute_trade(self, symbol, direction, df, last):
+    #     if not can_execute(symbol, self.settings):
+    #         return 0, 0, 0
+    #     # entry = df["close"].iloc[-1]
+    #     tick = mt5.symbol_info_tick(symbol)
+    #     entry = tick.ask if direction == "buy" else tick.bid
+    #     point = mt5.symbol_info(symbol).point
+    #
+    #     demand_zones = last["demand_zones"]
+    #     supply_zones = last["supply_zones"]
+    #
+    #     # --- LONG TRADE ---
+    #     if direction == "buy":
+    #
+    #         # 1. SL = below demand zone
+    #         if last["in_demand"] and len(demand_zones) > 0:
+    #             # find the nearest demand zone
+    #             nearest = min(demand_zones, key=lambda z: abs(entry - z[1]))
+    #             zone_low = nearest[0]
+    #             sl = zone_low - 2 * point  # small buffer
+    #         else:
+    #             # fallback: recent swing low
+    #             sl = df["low"].tail(10).min()
+    #
+    #         # 2. TP = next supply zone
+    #         if len(supply_zones) > 0:
+    #             # find supply zone above price
+    #             above = [z for z in supply_zones if z[0] > entry]
+    #             if len(above) > 0:
+    #                 next_supply = min(above, key=lambda z: z[0])
+    #                 tp = next_supply[0]
+    #             else:
+    #                 # fallback: 2R
+    #                 tp = entry + 2 * (entry - sl)
+    #         else:
+    #             tp = entry + 2 * (entry - sl)
+    #
+    #     # --- SHORT TRADE ---
+    #     else:
+    #
+    #         # 1. SL = above supply zone
+    #         if last["in_supply"] and len(supply_zones) > 0:
+    #             nearest = min(supply_zones, key=lambda z: abs(entry - z[0]))
+    #             zone_high = nearest[1]
+    #             sl = zone_high + 2 * point
+    #         else:
+    #             sl = df["high"].tail(10).max()
+    #
+    #         # 2. TP = next demand zone
+    #         if len(demand_zones) > 0:
+    #             below = [z for z in demand_zones if z[1] < entry]
+    #             if len(below) > 0:
+    #                 next_demand = max(below, key=lambda z: z[1])
+    #                 tp = next_demand[1]
+    #             else:
+    #                 tp = entry - 2 * (sl - entry)
+    #         else:
+    #             tp = entry - 2 * (sl - entry)
+    #
+    #     # risk-based lot size
+    #     balance = mt5.account_info().equity
+    #     risk_per_trade = self.settings["trading"]["risk_per_trade"]
+    #
+    #     lots = calc_lot_size(symbol, balance, risk_per_trade, entry, sl)
+    #
+    #     send_order(symbol, direction, lots, sl, tp, last)
+    #
+    #     return lots, sl, tp
 
 

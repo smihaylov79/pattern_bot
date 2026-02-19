@@ -18,7 +18,7 @@ def export_history():
     if row and row[0]:
         start = datetime.fromisoformat(row[0])
     else:
-        start = datetime.now() - timedelta(days=5)
+        start = datetime.now() - timedelta(days=3)
 
     end = datetime.now()
 

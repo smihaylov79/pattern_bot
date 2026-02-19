@@ -37,3 +37,5 @@ def send_order(symbol: str, direction: str, volume: float, sl: float, tp: float,
     else:
         print(f"Order placed: {result.order}")
     return result
+
+

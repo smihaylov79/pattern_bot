@@ -32,7 +32,6 @@ def shutdown_mt5():
 
 
 def get_bars(symbol: str, timeframe: str, n_bars: int) -> pd.DataFrame:
-    """Position-based, robust bar retrieval."""
     tf_map = {
         "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,
@@ -44,7 +43,7 @@ def get_bars(symbol: str, timeframe: str, n_bars: int) -> pd.DataFrame:
     }
     tf = tf_map[timeframe]
 
-    rates = mt5.copy_rates_from_pos(symbol, tf, 0, n_bars+1)
+    rates = mt5.copy_rates_from_pos(symbol, tf, 0, n_bars + 1)
     if rates is None:
         raise RuntimeError(f"Failed to get rates for {symbol}: {mt5.last_error()}")
 
@@ -60,4 +59,10 @@ def get_bars(symbol: str, timeframe: str, n_bars: int) -> pd.DataFrame:
     df = df[["time", "open", "high", "low", "close", "volume"]]
     df.set_index("time", inplace=True)
     df = df.iloc[:-1]
+
+    # NEW: guard against empty or tiny DataFrame
+    if df.empty or len(df) < 5:
+        raise RuntimeError(f"Not enough bars for {symbol} {timeframe}. Got {len(df)} rows.")
+
     return df
+

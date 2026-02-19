@@ -11,9 +11,15 @@ def calculate_atr(symbol: str, timeframe: str = "M5", period: int = 14):
     """
 
     # We need period + 1 candles to compute TR for all periods
-    df = get_bars(symbol, timeframe, period + 1)
+    try:
+        df = get_bars(symbol, timeframe, period + 2)
+    except:
+        # fallback to M15
+        df = get_bars(symbol, "M15", period + 2)
 
-    if df is None or len(df) < period + 1:
+    # df = get_bars(symbol, timeframe, period + 1)
+
+    if df is None or df.empty or len(df) < period + 1:
         return None
 
     # True Range components

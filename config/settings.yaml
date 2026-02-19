@@ -7,6 +7,7 @@ trading:
   risk_per_trade: 0.05   # 0.05%
   max_open_trades: 10
   equity_limit: 0.7
+  live_monitoring: false
 
 data:
   timeframe: "M5"
