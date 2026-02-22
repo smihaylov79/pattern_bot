@@ -1,6 +1,6 @@
 import time
-from datetime import datetime
-from core.data_feed import get_bars
+from datetime import datetime, timedelta
+from core.data_feed import get_bars, timeframe_to_seconds
 from core.candles import add_candle_metrics
 from core.patterns import calculate_atr
 from core.signals import generate_signals
@@ -11,9 +11,11 @@ from core.logger import setup_logger
 from core.db import get_connection, init_db
 
 
+
 class BotEngine:
-    def __init__(self, symbols, timeframe, htf, ltf, bars, settings, sleep_time=10):
+    def __init__(self, symbols, symbol_settings, timeframe, htf, ltf, bars, settings, sleep_time=10):
         self.symbols = symbols
+        self.symbol_settings = symbol_settings
         self.timeframe = timeframe
         self.htf = htf
         self.ltf = ltf
@@ -35,7 +37,20 @@ class BotEngine:
                     print(f"Error processing {symbol}: {e}")
             if self.settings['trading']['live_monitoring']:
                 self.monitor_open_positions()
-            time.sleep(self.sleep_time)
+            self.wait_until_next_candle()
+            # time.sleep(self.sleep_time)
+
+    def wait_until_next_candle(self):
+        now = datetime.utcnow()
+        tf_seconds = timeframe_to_seconds(self.timeframe)
+
+        # Align to the next candle boundary
+        current_epoch = int(now.timestamp())
+        next_close_epoch = ((current_epoch // tf_seconds) + 1) * tf_seconds
+        next_close = datetime.utcfromtimestamp(next_close_epoch)
+
+        sleep_time = (next_close - now).total_seconds()
+        time.sleep(max(1.0, sleep_time))
 
     def monitor_open_positions(self):
         positions = mt5.positions_get()
@@ -213,6 +228,7 @@ class BotEngine:
     def process_symbol(self, symbol):
 
         df_ltf = get_bars(symbol, self.timeframe, self.bars)
+
         df_htf = get_bars(symbol, self.htf, self.bars)
 
         df_ltf = add_candle_metrics(df_ltf)
@@ -223,7 +239,7 @@ class BotEngine:
             return
         self.last_timestamp[symbol] = last_time
 
-        df_signals = generate_signals(df_ltf, df_htf, symbol)
+        df_signals = generate_signals(df_ltf, df_htf, symbol, self.symbol_settings, self.settings)
         last = df_signals.iloc[-1]
 
 
@@ -265,13 +281,31 @@ class BotEngine:
             INSERT INTO logs (
                 timestamp, symbol, timeframe, candle_time,
                 open, high, low, close,
-                bull_eng, bear_eng, hammer, shooting_star, inside_bar,
-                near_sr, long_sig, short_sig,
-                action, lots, sl, tp,
-                pin_bar, doji, morning_star, evening_star,
-                three_bar_reversal, breakout_bar, outside_bar,
-                trigger_pattern, reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+                bullish_engulfing, bearish_engulfing,
+                hammer, shooting_star,
+                morning_star, evening_star,
+
+                bullish_pin_bar, bearish_pin_bar,
+                bullish_three_bar_reversal, bearish_three_bar_reversal,
+                bullish_breakout_bar, bearish_breakout_bar,
+                bullish_inside_bar, bearish_inside_bar,
+
+                doji, outside_bar,
+
+                near_sr, in_demand, in_supply, vol_ok,
+
+                bullish_count, bearish_count,
+                recent_bullish, recent_bearish,
+
+                bias_long, bias_short,
+                htf_ma_fast, htf_ma_slow, htf_ma_fast_slope,
+
+                long_signal, short_signal,
+                trigger_pattern,
+
+                action, lots, sl, tp, result
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now().isoformat(),
             symbol,
@@ -287,26 +321,45 @@ class BotEngine:
             int(last["bearish_engulfing"]),
             int(last["hammer"]),
             int(last["shooting_star"]),
-            int(last["inside_bar"]),
+            int(last["morning_star"]),
+            int(last["evening_star"]),
+
+            int(last["bullish_pin_bar"]),
+            int(last["bearish_pin_bar"]),
+            int(last["bullish_three_bar_reversal"]),
+            int(last["bearish_three_bar_reversal"]),
+            int(last["bullish_breakout_bar"]),
+            int(last["bearish_breakout_bar"]),
+            int(last["bullish_inside_bar"]),
+            int(last["bearish_inside_bar"]),
+
+            int(last["doji"]),
+            int(last["outside_bar"]),
 
             int(last["near_sr"]),
+            int(last["in_demand"]),
+            int(last["in_supply"]),
+            int(last["vol_ok"]),
+
+            int(last["bullish_count"]),
+            int(last["bearish_count"]),
+            int(last["recent_bullish"]),
+            int(last["recent_bearish"]),
+
+            int(last["bias_long"]),
+            int(last["bias_short"]),
+            float(last["htf_ma_fast"]),
+            float(last["htf_ma_slow"]),
+            float(last["htf_ma_fast_slope"]),
+
             int(last["long_signal"]),
             int(last["short_signal"]),
+            last["trigger_pattern"],
 
             action,
             lots,
             sl,
             tp,
-
-            int(last["pin_bar"]),
-            int(last["doji"]),
-            int(last["morning_star"]),
-            int(last["evening_star"]),
-            int(last["three_bar_reversal"]),
-            int(last["breakout_bar"]),
-            int(last["outside_bar"]),
-
-            last["trigger_pattern"],
             result
         ))
 

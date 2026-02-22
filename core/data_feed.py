@@ -66,3 +66,15 @@ def get_bars(symbol: str, timeframe: str, n_bars: int) -> pd.DataFrame:
 
     return df
 
+
+def timeframe_to_seconds(tf: str) -> int:
+    mapping = {
+        "M1": 60,
+        "M5": 300,
+        "M15": 900,
+        "M30": 1800,
+        "H1": 3600,
+        "H4": 14400,
+        "D1": 86400,
+    }
+    return mapping[tf]

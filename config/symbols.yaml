@@ -10,3 +10,84 @@ symbols:
   - "NGAS"
   - "COPPER"
   - "SILVER"
+
+symbol_settings:
+
+  "[SP500]":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+  "US100":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+  "GERMANY40":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+  "[JP225]":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+  "EURUSD":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+  "USDJPY":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+  "CADJPY":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+  "CRUDOIL":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+  "NGAS":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+  "COPPER":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+  "SILVER":
+    min_confluence: 2
+    monday_lockout_bars: 6
+    allowed_patterns: all
+
+
+patterns:
+    - bullish_engulfing
+    - bearish_engulfing
+    - hammer
+    - shooting_star
+    - morning_star
+    - evening_star
+    - bullish_inside_bar
+    - bearish_inside_bar
+    - bullish_pin_bar
+    - bearish_pin_bar
+    - bullish_three_bar_reversal
+    - bearish_three_bar_reversal
+    - bullish_breakout_bar
+    - bearish_breakout_bar
+    - doji
+    - outside_bar

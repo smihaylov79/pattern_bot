@@ -3,13 +3,14 @@ import streamlit as st
 import seaborn as sns
 import numpy as np
 
+from symbol_settings_loader import load_symbol_settings
 from trade_performance import exclude_manual_closes, compute_metrics
 from loader import load_trade_history
 from queries import count_patterns, signal_stats
 from charts import pattern_frequency_chart, signal_distribution_chart
 from analytics import pattern_signal_attribution, calculate_mfe_mae, reconstruct_trades, classify_recovery
 from charts import pattern_signal_chart
-from analytics import explain_signal_row
+from analytics import explain_signal_row, simulate_confluence_effect
 import matplotlib.pyplot as plt
 
 from charts import plot_trade_path
@@ -120,19 +121,59 @@ def render_trade_performance():
     st.subheader("Equity Curve")
     st.line_chart(filtered.set_index("exit_time")["equity"])
 
+    filtered["win"] = filtered["profit"] > 0
+
+    # st.subheader("Performance by Signal")
+    # st.dataframe(
+    #     filtered.groupby("signal")["profit"]
+    #     .agg(["count", "mean", "sum"])
+    #     .sort_values("sum", ascending=False)
+    # )
     st.subheader("Performance by Signal")
-    st.dataframe(
-        filtered.groupby("signal")["profit"]
-        .agg(["count", "mean", "sum"])
-        .sort_values("sum", ascending=False)
+
+    signal_stats = (
+        filtered
+        .groupby("signal")
+        .agg(
+            Trades=("profit", "count"),
+            Wins=("win", "sum"),
+            WinRate=("win", "mean"),
+            AvgProfit=("profit", "mean"),
+            TotalProfit=("profit", "sum")
+        )
+        .sort_values("TotalProfit", ascending=False)
     )
 
+    # Format WinRate as %
+    signal_stats["WinRate"] = (signal_stats["WinRate"] * 100).round(2)
+
+    st.dataframe(signal_stats)
+
+
+    # st.subheader("Performance by Symbol")
+    # st.dataframe(
+    #     filtered.groupby("symbol")["profit"]
+    #     .agg(["count", "mean", "sum"])
+    #     .sort_values("sum", ascending=False)
+    # )
     st.subheader("Performance by Symbol")
-    st.dataframe(
-        filtered.groupby("symbol")["profit"]
-        .agg(["count", "mean", "sum"])
-        .sort_values("sum", ascending=False)
+
+    symbol_stats = (
+        filtered
+        .groupby("symbol")
+        .agg(
+            Trades=("profit", "count"),
+            Wins=("win", "sum"),
+            WinRate=("win", "mean"),
+            AvgProfit=("profit", "mean"),
+            TotalProfit=("profit", "sum")
+        )
+        .sort_values("TotalProfit", ascending=False)
     )
+
+    symbol_stats["WinRate"] = (symbol_stats["WinRate"] * 100).round(2)
+
+    st.dataframe(symbol_stats)
 
     matrix = (
         filtered
@@ -144,6 +185,7 @@ def render_trade_performance():
             fill_value=0
         )
     )
+
 
     # Add total column
     matrix["ALL"] = matrix.sum(axis=1)
@@ -348,3 +390,52 @@ def render_trade_path_analysis(trades, price_data):
             st.pyplot(fig)
         else:
             st.warning("No price data for this symbol")
+
+
+def render_confluence_simulation(df_logs):
+    st.header("🧪 Confluence Simulation (Before vs After)")
+
+    # Filter only rows where a signal was evaluated
+    logs = df_logs[df_logs["reason"].notna()].copy()
+
+    # Load symbol settings
+    symbol_settings = load_symbol_settings()
+    trade_history = load_trade_history()
+
+    # Run simulation
+    comparison, logs2 = simulate_confluence_effect(logs, trade_history, symbol_settings)
+    # ---- Build totals row ----
+    totals = pd.DataFrame([{
+        "symbol": "ALL",
+        "signal": "ALL",
+        "original_trades": comparison["original_trades"].sum(),
+        "original_profit": comparison["original_profit"].sum(),
+        "filtered_trades": comparison["filtered_trades"].sum(),
+        "filtered_profit": comparison["filtered_profit"].sum(),
+    }])
+
+    totals["trade_diff"] = totals["filtered_trades"] - totals["original_trades"]
+    totals["profit_diff"] = totals["filtered_profit"] - totals["original_profit"]
+
+    st.subheader("📌 Global Totals")
+
+    st.dataframe(
+        totals.style.format({
+            "original_profit": "{:.2f}",
+            "filtered_profit": "{:.2f}",
+            "profit_diff": "{:.2f}"
+        })
+    )
+
+    st.subheader("📊 Summary Comparison Table")
+    st.dataframe(comparison)
+
+    st.subheader("🔥 Profit Difference by Signal × Symbol")
+    matrix = comparison.pivot_table(
+        index="signal",
+        columns="symbol",
+        values="profit_diff",
+        fill_value=0
+    )
+
+    st.dataframe(matrix.style.background_gradient(cmap="RdYlGn"))

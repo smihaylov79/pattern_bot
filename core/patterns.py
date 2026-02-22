@@ -82,13 +82,20 @@ def shooting_star(df: pd.DataFrame, body_ratio: float = 0.3) -> pd.Series:
     return (small_body & long_upper & tiny_lower & df["is_bear"]).fillna(False)
 
 
-def inside_bar(df: pd.DataFrame) -> pd.Series:
+def inside_bar(df):
     prev_high = df["high"].shift(1)
     prev_low = df["low"].shift(1)
-    return ((df["high"] <= prev_high) & (df["low"] >= prev_low)).fillna(False)
+
+    inside = (df["high"] <= prev_high) & (df["low"] >= prev_low)
+
+    bullish = inside & (df["close"] > prev_high)
+    bearish = inside & (df["close"] < prev_low)
+
+    return bullish.fillna(False), bearish.fillna(False)
 
 
-def pin_bar(df: pd.DataFrame, wick_ratio: float = 2.0, body_ratio: float = 0.3) -> pd.Series:
+
+def pin_bar(df, wick_ratio=2.0, body_ratio=0.3):
     body = df["body"]
     upper = df["upper_wick"]
     lower = df["lower_wick"]
@@ -101,10 +108,11 @@ def pin_bar(df: pd.DataFrame, wick_ratio: float = 2.0, body_ratio: float = 0.3) 
     tiny_upper = upper <= body
     tiny_lower = lower <= body
 
-    bullish_pin = small_body & long_lower & tiny_upper
-    bearish_pin = small_body & long_upper & tiny_lower
+    bullish = small_body & long_lower & tiny_upper
+    bearish = small_body & long_upper & tiny_lower
 
-    return (bullish_pin | bearish_pin).fillna(False)
+    return bullish.fillna(False), bearish.fillna(False)
+
 
 
 def doji(df: pd.DataFrame, threshold: float = 0.1) -> pd.Series:
@@ -137,7 +145,7 @@ def evening_star(df: pd.DataFrame) -> pd.Series:
     return (c1_bull & c2_small & c3_bear & c3_closes_into_c1).fillna(False)
 
 
-def three_bar_reversal(df: pd.DataFrame) -> pd.Series:
+def three_bar_reversal(df):
     low1 = df["low"].shift(2)
     low2 = df["low"].shift(1)
     low3 = df["low"]
@@ -149,10 +157,10 @@ def three_bar_reversal(df: pd.DataFrame) -> pd.Series:
     bull = (low2 < low1) & (low3 > low2) & (df["close"] > df["open"])
     bear = (high2 > high1) & (high3 < high2) & (df["close"] < df["open"])
 
-    return (bull | bear).fillna(False)
+    return bull.fillna(False), bear.fillna(False)
 
 
-def breakout_bar(df: pd.DataFrame, factor: float = 1.5) -> pd.Series:
+def breakout_bar(df, factor=1.5):
     range_ = df["high"] - df["low"]
     avg_range = range_.rolling(20).mean()
 
@@ -161,7 +169,7 @@ def breakout_bar(df: pd.DataFrame, factor: float = 1.5) -> pd.Series:
     bull = big_range & (df["close"] > df["open"])
     bear = big_range & (df["close"] < df["open"])
 
-    return (bull | bear).fillna(False)
+    return bull.fillna(False), bear.fillna(False)
 
 
 def outside_bar(df: pd.DataFrame) -> pd.Series:
@@ -172,17 +180,33 @@ def outside_bar(df: pd.DataFrame) -> pd.Series:
 
 
 PATTERNS = {
+    # Already directional
     "bullish_engulfing": bullish_engulfing,
     "bearish_engulfing": bearish_engulfing,
-    "hammer": hammer,
-    "shooting_star": shooting_star,
-    "inside_bar": inside_bar,
-    "pin_bar": pin_bar,
+    "hammer": hammer,                     # bullish only
+    "shooting_star": shooting_star,       # bearish only
+    "morning_star": morning_star,         # bullish only
+    "evening_star": evening_star,         # bearish only
+
+    # Directional inside bar
+    "bullish_inside_bar": lambda df: inside_bar(df)[0],
+    "bearish_inside_bar": lambda df: inside_bar(df)[1],
+
+    # Directional pin bar
+    "bullish_pin_bar": lambda df: pin_bar(df)[0],
+    "bearish_pin_bar": lambda df: pin_bar(df)[1],
+
+    # Directional three-bar reversal
+    "bullish_three_bar_reversal": lambda df: three_bar_reversal(df)[0],
+    "bearish_three_bar_reversal": lambda df: three_bar_reversal(df)[1],
+
+    # Directional breakout bar
+    "bullish_breakout_bar": lambda df: breakout_bar(df)[0],
+    "bearish_breakout_bar": lambda df: breakout_bar(df)[1],
+
+    # Neutral patterns
     "doji": doji,
-    "morning_star": morning_star,
-    "evening_star": evening_star,
-    "three_bar_reversal": three_bar_reversal,
-    "breakout_bar": breakout_bar,
     "outside_bar": outside_bar,
 }
+
 

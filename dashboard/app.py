@@ -5,7 +5,7 @@ from layout import (
     render_dashboard,
     render_signal_explorer,
     render_trade_performance,
-    render_trade_path_analysis
+    render_trade_path_analysis, render_confluence_simulation
 )
 
 if __name__ == "__main__":
@@ -19,11 +19,12 @@ if __name__ == "__main__":
 
     st.title("Pattern Bot Dashboard")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Session Dashboard",
         "🔍 Signal Explorer",
         "📈 Trade Performance",
-        "📈 Trade Path Analysis"
+        "📈 Trade Path Analysis",
+        "🧪 Confluence Simulation"
     ])
 
     with tab1:
@@ -37,3 +38,6 @@ if __name__ == "__main__":
 
     with tab4:
         render_trade_path_analysis(df_trades, price_data)
+    with tab5:
+        render_confluence_simulation(df_logs)
+

@@ -1,6 +1,7 @@
 import pandas as pd
 
 
+
 def pattern_probabilities(df):
     patterns = ["bull_eng", "bear_eng", "hammer", "shooting_star", "inside_bar"]
     results = {}
@@ -204,3 +205,105 @@ def classify_recovery(mfe):
         return "+10 to +20 points"
     else:
         return "20+ points"
+
+
+def simulate_confluence_effect(logs, trade_history, symbol_settings, recent_window=3, default_min=2):
+    import re
+    logs = logs.copy()
+    logs = logs[logs["reason"].notna()]
+
+    # ---------------------------------------------------------
+    # 1. Extract order number from logs.reason
+    # ---------------------------------------------------------
+    def extract_order(reason):
+        if isinstance(reason, str):
+            m = re.search(r"order=(\d+)", reason)
+            if m:
+                return int(m.group(1))
+        return None
+
+    logs["order"] = logs["reason"].apply(extract_order)
+
+    # ---------------------------------------------------------
+    # 2. Build lookup tables from trade_history
+    # ---------------------------------------------------------
+    order_to_pos = trade_history.set_index("order")["position_id"].to_dict()
+
+    pos_to_profit = (
+        trade_history
+        .sort_values("time_msc")
+        .groupby("position_id")["profit"]
+        .last()
+        .to_dict()
+    )
+
+    pos_to_signal = (
+        trade_history
+        .groupby("position_id")["signal"]
+        .first()
+        .to_dict()
+    )
+
+    # ---------------------------------------------------------
+    # 3. Attach trade info to logs
+    # ---------------------------------------------------------
+    logs["position_id"] = logs["order"].map(order_to_pos)
+    logs["profit"] = logs["position_id"].map(pos_to_profit)
+    logs["signal"] = logs["position_id"].map(pos_to_signal)
+    logs["triggered_trade"] = logs["profit"].notna()
+
+    # ---------------------------------------------------------
+    # 4. Confluence based on long_sig + short_sig
+    # ---------------------------------------------------------
+    # raw signal = long_sig OR short_sig
+    logs["raw_signal"] = (logs["long_sig"] == 1) | (logs["short_sig"] == 1)
+
+    # pattern_count = number of signals on this bar (0, 1, or 2)
+    logs["pattern_count"] = logs["long_sig"] + logs["short_sig"]
+
+    results = []
+
+    for symbol, group in logs.groupby("symbol"):
+        cfg = symbol_settings.get(symbol, {})
+        min_conf = cfg.get("min_confluence", default_min)
+
+        g = group.copy()
+
+        # rolling confluence
+        g["recent_pattern_count"] = (
+            g["pattern_count"]
+            .rolling(recent_window)
+            .sum()
+            .fillna(0)
+        )
+
+        g["passes_confluence"] = g["recent_pattern_count"] >= min_conf
+
+        # would trigger under new rules
+        g["would_trigger"] = g["raw_signal"] & g["passes_confluence"]
+
+        results.append(g)
+
+    logs2 = pd.concat(results, ignore_index=True)
+
+    # ---------------------------------------------------------
+    # 5. Build before/after comparison table
+    # ---------------------------------------------------------
+    comparison = (
+        logs2.groupby(["symbol", "signal"])
+        .apply(lambda g: pd.Series({
+            "original_trades": g["triggered_trade"].sum(),
+            "original_profit": g["profit"].sum(),
+            # "filtered_trades": g["would_trigger"].sum(),
+            "filtered_trades": g.loc[g["would_trigger"] & g["triggered_trade"], "position_id"].nunique(),
+
+            "filtered_profit": g.loc[g["would_trigger"], "profit"].sum()
+        }))
+        .reset_index()
+    )
+
+    comparison["trade_diff"] = comparison["filtered_trades"] - comparison["original_trades"]
+    comparison["profit_diff"] = comparison["filtered_profit"] - comparison["original_profit"]
+
+    return comparison, logs2
+

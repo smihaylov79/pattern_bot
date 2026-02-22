@@ -10,17 +10,23 @@ def load_settings():
         return yaml.safe_load(f)
 
 
-def load_symbols():
+def load_symbol_config():
     path = Path(__file__).resolve().parent / "config" / "symbols.yaml"
     with open(path, "r") as f:
-        return yaml.safe_load(f)["symbols"]
+        data = yaml.safe_load(f)
+
+    symbols = data.get("symbols", [])
+    settings = data.get("symbol_settings", {})
+
+    return symbols, settings
 
 
 def main():
     init_mt5()
 
     settings = load_settings()
-    symbols = load_symbols()
+    symbols, symbol_settings = load_symbol_config()
+
 
     tf = settings["data"]["timeframe"]
     tf_htf = settings["data"]["htf"]
@@ -29,6 +35,7 @@ def main():
 
     bot = BotEngine(
         symbols=symbols,
+        symbol_settings=symbol_settings,
         timeframe=tf,
         htf=tf_htf,
         ltf=tf_ltf,
