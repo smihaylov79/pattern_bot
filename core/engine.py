@@ -9,7 +9,7 @@ from core.risk import calc_lot_size, can_execute
 import MetaTrader5 as mt5
 from core.logger import setup_logger
 from core.db import get_connection, init_db
-
+from scalp_reversal.scalp_reversal_bot import ScalperBot
 
 
 class BotEngine:
@@ -26,6 +26,12 @@ class BotEngine:
         self.logger = setup_logger()
         init_db()
 
+        if settings["trading"].get("scalper_bot_active", False):
+            self.scalper = ScalperBot(symbol="[SP500]", timeframe="M5", atr_period=14, body_threshold=0.5, magic=999001,
+                                      comment="scalper_bot")
+        else:
+            self.scalper = None
+
     def run(self):
         print("Bot started...")
 
@@ -35,6 +41,10 @@ class BotEngine:
                     self.process_symbol(symbol)
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
+
+            if self.scalper:
+                self.scalper.process()
+
             if self.settings['trading']['live_monitoring']:
                 self.monitor_open_positions()
             self.wait_until_next_candle()
@@ -67,47 +77,48 @@ class BotEngine:
     def manage_position(self, pos):
         symbol = pos.symbol
         direction = "buy" if pos.type == 0 else "sell"
-        entry = pos.price_open
+        # entry = pos.price_open
         volume = pos.volume
         ticket = pos.ticket
 
-        info = mt5.symbol_info(symbol)
-        point = info.point
-        min_stop = info.trade_stops_level * point
+        # info = mt5.symbol_info(symbol)
+        # point = info.point
+        # min_stop = info.trade_stops_level * point
 
         # current price
-        tick = mt5.symbol_info_tick(symbol)
-        current = tick.bid if direction == "sell" else tick.ask
+        # tick = mt5.symbol_info_tick(symbol)
+        # current = tick.bid if direction == "sell" else tick.ask
 
         # --- Compute MFE/MAE correctly ---
-        if direction == "buy":
-            mfe = current - entry
-            mae = current - entry  # current loss (not true MAE, but safe fallback)
-        else:
-            mfe = entry - current
-            mae = entry - current
+        # if direction == "buy":
+        #     mfe = current - entry
+        #     mae = current - entry  # current loss (not true MAE, but safe fallback)
+        # else:
+        #     mfe = entry - current
+        #     mae = entry - current
 
         # thresholds based on symbol volatility
-        atr = calculate_atr(symbol, timeframe=self.htf, period=14)
-        break_even_trigger = max(1 * min_stop, 0.5 * atr)
-        reversal_trigger = max(2 * min_stop, 1.0 * atr)
-        hard_loss_trigger = -max(2 * min_stop, 1.0 * atr)
+        # atr = calculate_atr(symbol, timeframe=self.htf, period=14)
+        # break_even_trigger = max(1 * min_stop, 0.5 * atr)
+        # reversal_trigger = max(2 * min_stop, 1.0 * atr)
+        # hard_loss_trigger = -max(2 * min_stop, 1.0 * atr)
 
         # 1. Break-even logic
-        if mfe > break_even_trigger and pos.sl < entry:
-            if self.detect_reversal(symbol, direction):
-                new_sl = entry + 1 * point if direction == "buy" else entry - 1 * point
-                self.modify_sl_safe(ticket, symbol, new_sl, current, min_stop, direction, pos.tp)
+        # if mfe > break_even_trigger and pos.sl < entry:
+        #     if self.detect_reversal(symbol, direction):
+        #         new_sl = entry + 1 * point if direction == "buy" else entry - 1 * point
+        #         self.modify_sl_safe(ticket, symbol, new_sl, current, min_stop, direction, pos.tp)
 
         # 2. Reversal exit
-        if mfe > reversal_trigger and self.detect_reversal(symbol, direction):
+        # if mfe > reversal_trigger and self.detect_reversal(symbol, direction):
+        if self.detect_reversal(symbol, direction):
             self.close_position(ticket, symbol, direction, volume, reason="reversal")
             return
 
         # 3. Hard loss exit
-        if mae < hard_loss_trigger:
-            self.close_position(ticket, symbol, direction, volume, reason="hard_loss")
-            return
+        # if mae < hard_loss_trigger:
+        #     self.close_position(ticket, symbol, direction, volume, reason="hard_loss")
+        #     return
 
     def detect_reversal(self, symbol, direction):
         """

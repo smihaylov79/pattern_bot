@@ -4,10 +4,11 @@ mt5:
   password: ""
 
 trading:
-  risk_per_trade: 0.15
+  risk_per_trade: 0.2
   max_open_trades: 10
   equity_limit: 0.7
   live_monitoring: false
+  scalper_bot_active: false
 
 filters:
   recent_bars_window: 3

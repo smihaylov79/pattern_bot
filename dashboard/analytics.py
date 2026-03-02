@@ -13,7 +13,12 @@ def pattern_probabilities(df):
 
 
 def pattern_signal_attribution(df):
-    patterns = ["bull_eng", "bear_eng", "hammer", "shooting_star", "inside_bar", "near_sr"]
+    patterns = ['bullish_engulfing', 'bearish_engulfing', 'hammer',
+       'shooting_star', 'morning_star', 'evening_star', 'bullish_pin_bar',
+       'bearish_pin_bar', 'bullish_three_bar_reversal',
+       'bearish_three_bar_reversal', 'bullish_breakout_bar',
+       'bearish_breakout_bar', 'bullish_inside_bar', 'bearish_inside_bar',
+       'doji', 'outside_bar',]
     rows = []
 
     for p in patterns:
@@ -24,8 +29,8 @@ def pattern_signal_attribution(df):
             rows.append([p, 0, 0, 0, 0])
             continue
 
-        long_hits = subset["long_sig"].sum()
-        short_hits = subset["short_sig"].sum()
+        long_hits = subset["long_signal"].sum()
+        short_hits = subset["short_signal"].sum()
 
         rows.append([
             p,
@@ -71,22 +76,42 @@ def explain_signal(row):
 def explain_signal_row(row):
     reasons = []
 
-    if row["bull_eng"] == 1:
+    if row["bullish_engulfing"] == 1:
         reasons.append("Bullish Engulfing")
-    if row["bear_eng"] == 1:
+    if row["bearish_engulfing"] == 1:
         reasons.append("Bearish Engulfing")
     if row["hammer"] == 1:
         reasons.append("Hammer")
     if row["shooting_star"] == 1:
         reasons.append("Shooting Star")
-    if row["inside_bar"] == 1:
-        reasons.append("Inside Bar")
-    if row["near_sr"] == 1:
-        reasons.append("Near Support/Resistance")
+    if row["morning_star"] == 1:
+        reasons.append("Morning Star")
+    if row["evening_star"] == 1:
+        reasons.append("Evening Star")
+    if row["bullish_pin_bar"] == 1:
+        reasons.append("Bullish Pin Bar")
+    if row["bearish_pin_bar"] == 1:
+        reasons.append("Bearish Pin Bar")
+    if row["bullish_three_bar_reversal"] == 1:
+        reasons.append("Bullish Three Bar Reversal")
+    if row["bearish_three_bar_reversal"] == 1:
+        reasons.append("Bearish Three Bar Reversal")
+    if row["bullish_breakout_bar"] == 1:
+        reasons.append("Bullish Breakout Bar")
+    if row["bearish_breakout_bar"] == 1:
+        reasons.append("Bearish Breakout Bar")
+    if row["bullish_inside_bar"] == 1:
+        reasons.append("Bullish Inside Bar")
+    if row["bearish_inside_bar"] == 1:
+        reasons.append("Bearish Inside Bar")
+    if row["doji"] == 1:
+        reasons.append("Doji")
+    if row["outside_bar"] == 1:
+        reasons.append("Outside Bar")
 
-    if row["long_sig"] == 1:
+    if row["long_signal"] == 1:
         signal = "LONG"
-    elif row["short_sig"] == 1:
+    elif row["short_signal"] == 1:
         signal = "SHORT"
     else:
         signal = "NO SIGNAL"
@@ -210,7 +235,7 @@ def classify_recovery(mfe):
 def simulate_confluence_effect(logs, trade_history, symbol_settings, recent_window=3, default_min=2):
     import re
     logs = logs.copy()
-    logs = logs[logs["reason"].notna()]
+    logs = logs[logs["result"].notna()]
 
     # ---------------------------------------------------------
     # 1. Extract order number from logs.reason
@@ -222,7 +247,7 @@ def simulate_confluence_effect(logs, trade_history, symbol_settings, recent_wind
                 return int(m.group(1))
         return None
 
-    logs["order"] = logs["reason"].apply(extract_order)
+    logs["order"] = logs["result"].apply(extract_order)
 
     # ---------------------------------------------------------
     # 2. Build lookup tables from trade_history
@@ -256,10 +281,10 @@ def simulate_confluence_effect(logs, trade_history, symbol_settings, recent_wind
     # 4. Confluence based on long_sig + short_sig
     # ---------------------------------------------------------
     # raw signal = long_sig OR short_sig
-    logs["raw_signal"] = (logs["long_sig"] == 1) | (logs["short_sig"] == 1)
+    logs["raw_signal"] = (logs["long_signal"] == 1) | (logs["short_signal"] == 1)
 
     # pattern_count = number of signals on this bar (0, 1, or 2)
-    logs["pattern_count"] = logs["long_sig"] + logs["short_sig"]
+    logs["pattern_count"] = logs["long_signal"] + logs["short_signal"]
 
     results = []
 

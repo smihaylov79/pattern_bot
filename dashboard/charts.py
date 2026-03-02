@@ -14,11 +14,11 @@ def pattern_frequency_chart(pattern_counts):
 
 
 def signal_distribution_chart(df):
-    grouped = df.groupby("symbol")[["long_sig", "short_sig"]].sum().reset_index()
+    grouped = df.groupby("symbol")[["long_signal", "short_signal"]].sum().reset_index()
     fig = px.bar(
         grouped,
         x="symbol",
-        y=["long_sig", "short_sig"],
+        y=["long_signal", "short_signal"],
         barmode="group",
         title="Signal Distribution by Symbol"
     )

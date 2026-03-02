@@ -396,7 +396,7 @@ def render_confluence_simulation(df_logs):
     st.header("🧪 Confluence Simulation (Before vs After)")
 
     # Filter only rows where a signal was evaluated
-    logs = df_logs[df_logs["reason"].notna()].copy()
+    logs = df_logs[df_logs["result"].notna()].copy()
 
     # Load symbol settings
     symbol_settings = load_symbol_settings()

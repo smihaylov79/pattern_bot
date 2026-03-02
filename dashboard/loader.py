@@ -8,6 +8,7 @@ DB_PATH = r"C:\Users\stoya\OneDrive\Invest\pattern_bot\logs\bot.db"
 def load_logs(path=DB_PATH):
     conn = sqlite3.connect(path)
     df = pd.read_sql("SELECT * FROM logs", conn)
+    print(df.columns)
     conn.close()
     return df
 

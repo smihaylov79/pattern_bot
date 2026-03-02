@@ -16,62 +16,198 @@ symbol_settings:
   "[SP500]":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
-
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bearish_three_bar_reversal
+      - doji
+      - outside_bar
 
   "US100":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
-
+    allowed_patterns:
+      - bullish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bearish_three_bar_reversal
+      - bullish_breakout_bar
+      - bearish_breakout_bar
+      - doji
+      - outside_bar
 
   "GERMANY40":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - bearish_three_bar_reversal
+      - doji
 
   "[JP225]":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
-
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - bullish_breakout_bar
+      - doji
 
   "EURUSD":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bullish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - doji
 
   "USDJPY":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - bearish_three_bar_reversal
+      - doji
 
   "CADJPY":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bearish_breakout_bar
+      - doji
 
   "CRUDOIL":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
-
+    allowed_patterns:
+      - bullish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - doji
+      - outside_bar
 
   "NGAS":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
-
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bearish_breakout_bar
+      - doji
+      - outside_bar
 
   "COPPER":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - bearish_three_bar_reversal
+      - bearish_breakout_bar
+      - doji
+      - outside_bar
 
   "SILVER":
     min_confluence: 2
     monday_lockout_bars: 6
-    allowed_patterns: all
+    allowed_patterns:
+      - bullish_engulfing
+      - bearish_engulfing
+      - hammer
+      - shooting_star
+      - morning_star
+      - evening_star
+      - bullish_inside_bar
+      - bearish_inside_bar
+      - bullish_pin_bar
+      - bearish_pin_bar
+      - bullish_three_bar_reversal
+      - bearish_three_bar_reversal
+      - bearish_breakout_bar
+      - doji
+      - outside_bar
 
 
 patterns:
