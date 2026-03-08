@@ -7,7 +7,7 @@ trading:
   risk_per_trade: 0.2
   max_open_trades: 10
   equity_limit: 0.7
-  live_monitoring: false
+  live_monitoring: true
   scalper_bot_active: false
 
 filters:
@@ -22,3 +22,8 @@ data:
   htf: "M15"
   ltf: "M1"
   bars_history: 200
+
+monitoring:
+  profit_decay_threshold: 0.4
+  max_trade_duration_sec: 600
+  atr_multiplier: 1.2

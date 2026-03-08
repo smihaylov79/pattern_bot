@@ -24,6 +24,7 @@ class BotEngine:
         self.sleep_time = sleep_time
         self.last_timestamp = {s: None for s in symbols}
         self.logger = setup_logger()
+        self.max_profit = {}
         init_db()
 
         if settings["trading"].get("scalper_bot_active", False):
@@ -48,7 +49,6 @@ class BotEngine:
             if self.settings['trading']['live_monitoring']:
                 self.monitor_open_positions()
             self.wait_until_next_candle()
-            # time.sleep(self.sleep_time)
 
     def wait_until_next_candle(self):
         now = datetime.utcnow()
@@ -65,176 +65,155 @@ class BotEngine:
     def monitor_open_positions(self):
         positions = mt5.positions_get()
 
-        if positions is None or len(positions) == 0:
+        if not positions:
             return
 
         for pos in positions:
             try:
-                self.manage_position(pos)
+                self.evaluate_position_health(pos)
             except Exception as e:
-                print(f"Error managing position {pos.ticket}: {e}")
+                print(f"Error evaluating position {pos.ticket}: {e}")
 
-    def manage_position(self, pos):
+    def evaluate_position_health(self, pos):
         symbol = pos.symbol
-        direction = "buy" if pos.type == 0 else "sell"
-        # entry = pos.price_open
-        volume = pos.volume
         ticket = pos.ticket
+        current_profit = pos.profit
 
-        # info = mt5.symbol_info(symbol)
-        # point = info.point
-        # min_stop = info.trade_stops_level * point
+        # Track max profit
+        if ticket not in self.max_profit:
+            self.max_profit[ticket] = current_profit
+        else:
+            self.max_profit[ticket] = max(self.max_profit[ticket], current_profit)
 
-        # current price
-        # tick = mt5.symbol_info_tick(symbol)
-        # current = tick.bid if direction == "sell" else tick.ask
-
-        # --- Compute MFE/MAE correctly ---
-        # if direction == "buy":
-        #     mfe = current - entry
-        #     mae = current - entry  # current loss (not true MAE, but safe fallback)
-        # else:
-        #     mfe = entry - current
-        #     mae = entry - current
-
-        # thresholds based on symbol volatility
-        # atr = calculate_atr(symbol, timeframe=self.htf, period=14)
-        # break_even_trigger = max(1 * min_stop, 0.5 * atr)
-        # reversal_trigger = max(2 * min_stop, 1.0 * atr)
-        # hard_loss_trigger = -max(2 * min_stop, 1.0 * atr)
-
-        # 1. Break-even logic
-        # if mfe > break_even_trigger and pos.sl < entry:
-        #     if self.detect_reversal(symbol, direction):
-        #         new_sl = entry + 1 * point if direction == "buy" else entry - 1 * point
-        #         self.modify_sl_safe(ticket, symbol, new_sl, current, min_stop, direction, pos.tp)
-
-        # 2. Reversal exit
-        # if mfe > reversal_trigger and self.detect_reversal(symbol, direction):
-        if self.detect_reversal(symbol, direction):
-            self.close_position(ticket, symbol, direction, volume, reason="reversal")
+        # RULE 1: Profit decay
+        if self.should_exit_profit_decay(ticket, current_profit):
+            print(f"[EXIT] Profit decay triggered for {symbol} #{ticket}")
+            self.close_position(ticket, "profit")
             return
 
-        # 3. Hard loss exit
-        # if mae < hard_loss_trigger:
-        #     self.close_position(ticket, symbol, direction, volume, reason="hard_loss")
-        #     return
+        # RULE 2: Structure invalidation
+        if self.should_exit_structure(symbol, pos):
+            print(f"[EXIT] Structure break for {symbol} #{ticket}")
+            self.close_position(ticket, "structure")
+            return
 
-    def detect_reversal(self, symbol, direction):
-        """
-        Detects a reversal against the current position using the last few candles.
-        Uses the same get_bars() function as the signal engine for consistency.
-        """
+        # RULE 3: Time decay
+        if self.should_exit_time_decay(pos):
+            print(f"[EXIT] Time decay for {symbol} #{ticket}")
+            self.close_position(ticket, "time")
+            return
 
-        # Get last 5 M1 candles (or use your LTF timeframe if you prefer)
+        # RULE 4: ATR trailing stop
+        if self.should_exit_atr_trail(symbol, pos):
+            print(f"[EXIT] ATR trailing stop for {symbol} #{ticket}")
+            self.close_position(ticket, "atr_trail")
+            return
+
+    def should_exit_profit_decay(self, ticket, current_profit):
+        max_profit = self.max_profit.get(ticket, current_profit)
+
+        # Update max profit
+        self.max_profit[ticket] = max(max_profit, current_profit)
+
+        # Only apply if trade was profitable at some point
+        if max_profit <= 0:
+            return False
+
+        decay_ratio = current_profit / max_profit
+
+        threshold = self.settings['monitoring']['profit_decay_threshold']
+
+        return decay_ratio < threshold
+
+    def should_exit_structure(self, symbol, pos):
         try:
-            df = get_bars(symbol, self.ltf, 5)
-        except Exception as e:
-            print(f"[MANAGER] Failed to get bars for reversal detection: {e}")
+            df = get_bars(symbol, "M5", 50)
+        except:
             return False
 
-        if df is None or len(df) < 3:
+        if len(df) < 10:
             return False
 
-        # Extract last 3 candles
-        c1 = df.iloc[-1]  # current candle
-        c2 = df.iloc[-2]  # previous candle
-        c3 = df.iloc[-3]  # earlier candle
+        # BUY → exit if price breaks last higher low
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            last_higher_low = df['low'].rolling(5).min().iloc[-2]
+            return df['close'].iloc[-1] < last_higher_low
 
-        # -----------------------------
-        # 1. Engulfing reversal pattern
-        # -----------------------------
-        if direction == "buy":
-            # Bearish engulfing
-            if (
-                    c1["open"] > c1["close"] and
-                    c1["open"] >= c2["close"] and
-                    c1["close"] <= c2["open"]
-            ):
-                return True
-        else:
-            # Bullish engulfing
-            if (
-                    c1["close"] > c1["open"] and
-                    c1["close"] >= c2["open"] and
-                    c1["open"] <= c2["close"]
-            ):
-                return True
-
-        # -----------------------------
-        # 2. Break of last swing
-        # -----------------------------
-        swing_low = min(c2["low"], c3["low"])
-        swing_high = max(c2["high"], c3["high"])
-
-        if direction == "buy" and c1["close"] < swing_low:
-            return True
-
-        if direction == "sell" and c1["close"] > swing_high:
-            return True
-
-        # -----------------------------
-        # 3. Momentum loss (2 opposite candles growing)
-        # -----------------------------
-        body1 = abs(c1["close"] - c1["open"])
-        body2 = abs(c2["close"] - c2["open"])
-
-        if direction == "buy":
-            if (
-                    c1["close"] < c1["open"] and
-                    c2["close"] < c2["open"] and
-                    body1 > body2
-            ):
-                return True
-        else:
-            if (
-                    c1["close"] > c1["open"] and
-                    c2["close"] > c2["open"] and
-                    body1 > body2
-            ):
-                return True
+        # SELL → exit if price breaks last lower high
+        if pos.type == mt5.ORDER_TYPE_SELL:
+            last_lower_high = df['high'].rolling(5).max().iloc[-2]
+            return df['close'].iloc[-1] > last_lower_high
 
         return False
 
-    def close_position(self, ticket, symbol, direction, volume, reason="manager_exit"):
-        opposite = mt5.ORDER_TYPE_SELL if direction == "buy" else mt5.ORDER_TYPE_BUY
-        price = mt5.symbol_info_tick(symbol).bid if direction == "buy" else mt5.symbol_info_tick(symbol).ask
+    def should_exit_time_decay(self, pos):
+        now = time.time()
+        open_time = pos.time
+        elapsed = now - open_time
+
+        max_duration = self.settings['monitoring']['max_trade_duration_sec']
+
+        return elapsed > max_duration
+
+    def should_exit_atr_trail(self, symbol, pos):
+        # Use your existing ATR function
+        atr = calculate_atr(symbol, timeframe=self.timeframe, period=14)
+
+        if atr is None:
+            return False
+
+        # Current price
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return False
+
+        current_price = tick.bid if pos.type == mt5.ORDER_TYPE_SELL else tick.ask
+
+        # ATR multiplier from settings
+        mult = self.settings['monitoring']['atr_multiplier']
+
+        # BUY position → trail below price
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            trail_price = pos.price_open + atr * mult
+            return current_price < trail_price
+
+        # SELL position → trail above price
+        if pos.type == mt5.ORDER_TYPE_SELL:
+            trail_price = pos.price_open - atr * mult
+            return current_price > trail_price
+
+        return False
+
+    def close_position(self, ticket, comment):
+        pos = mt5.positions_get(ticket=ticket)
+        if not pos:
+            return
+
+        pos = pos[0]
+        symbol = pos.symbol
+        volume = pos.volume
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
+            "position": ticket,
             "symbol": symbol,
             "volume": volume,
-            "type": opposite,
-            "position": ticket,
-            "price": price,
-            "deviation": 10,
-            "magic": 123456,
-            "comment": reason,
+            "type": mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY,
+            "magic": 999,
+            "comment": comment
         }
 
         result = mt5.order_send(request)
-        print(f"[MANAGER] Close result: {result.retcode} | reason={reason}")
 
-    def modify_sl_safe(self, ticket, symbol, new_sl, current_price, min_stop, direction, current_tp):
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"Closed position #{ticket} on {symbol}")
 
-        # enforce minimum stop distance
-        if direction == "buy":
-            allowed_sl = current_price - min_stop
-            new_sl = min(new_sl, allowed_sl)
+            # 🔥 CLEANUP: remove max profit tracking for this ticket
+            if ticket in self.max_profit:
+                del self.max_profit[ticket]
+
         else:
-            allowed_sl = current_price + min_stop
-            new_sl = max(new_sl, allowed_sl)
-
-        request = {
-            "action": mt5.TRADE_ACTION_SLTP,
-            "symbol": symbol,
-            "position": ticket,
-            "sl": new_sl,
-            "tp": current_tp,
-        }
-
-        result = mt5.order_send(request)
-        print(f"[MANAGER] SL modify result: {result.retcode}")
+            print(f"Failed to close position #{ticket}: {result}")
 
     def process_symbol(self, symbol):
 
