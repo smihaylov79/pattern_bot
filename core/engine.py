@@ -25,6 +25,9 @@ class BotEngine:
         self.last_timestamp = {s: None for s in symbols}
         self.logger = setup_logger()
         self.max_profit = {}
+        self.max_price = {}  # for BUY positions
+        self.min_price = {}  # for SELL positions
+
         init_db()
 
         if settings["trading"].get("scalper_bot_active", False):
@@ -79,6 +82,15 @@ class BotEngine:
         ticket = pos.ticket
         current_profit = pos.profit
 
+        price = mt5.symbol_info_tick(symbol).bid if pos.type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(
+            symbol).ask
+
+        # Track favorable price movement
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            self.max_price[ticket] = max(self.max_price.get(ticket, price), price)
+        else:
+            self.min_price[ticket] = min(self.min_price.get(ticket, price), price)
+
         # Track max profit
         if ticket not in self.max_profit:
             self.max_profit[ticket] = current_profit
@@ -98,10 +110,10 @@ class BotEngine:
             return
 
         # RULE 3: Time decay
-        if self.should_exit_time_decay(pos):
-            print(f"[EXIT] Time decay for {symbol} #{ticket}")
-            self.close_position(ticket, "time")
-            return
+        # if self.should_exit_time_decay(pos):
+        #     print(f"[EXIT] Time decay for {symbol} #{ticket}")
+        #     self.close_position(ticket, "time")
+        #     return
 
         # RULE 4: ATR trailing stop
         if self.should_exit_atr_trail(symbol, pos):
@@ -119,6 +131,12 @@ class BotEngine:
         if max_profit <= 0:
             return False
 
+        # NEW: require minimum profit before decay logic activates
+        min_profit = self.settings['monitoring']['min_profit_for_decay']
+        if max_profit < min_profit:
+            return False
+
+        # Compute decay ratio
         decay_ratio = current_profit / max_profit
 
         threshold = self.settings['monitoring']['profit_decay_threshold']
@@ -127,7 +145,7 @@ class BotEngine:
 
     def should_exit_structure(self, symbol, pos):
         try:
-            df = get_bars(symbol, "M5", 50)
+            df = get_bars(symbol, self.timeframe, 50)
         except:
             return False
 
@@ -156,30 +174,37 @@ class BotEngine:
         return elapsed > max_duration
 
     def should_exit_atr_trail(self, symbol, pos):
-        # Use your existing ATR function
         atr = calculate_atr(symbol, timeframe=self.timeframe, period=14)
-
         if atr is None:
             return False
 
-        # Current price
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
             return False
 
         current_price = tick.bid if pos.type == mt5.ORDER_TYPE_SELL else tick.ask
-
-        # ATR multiplier from settings
         mult = self.settings['monitoring']['atr_multiplier']
+        ticket = pos.ticket
 
-        # BUY position → trail below price
+        # BUY logic
         if pos.type == mt5.ORDER_TYPE_BUY:
-            trail_price = pos.price_open + atr * mult
+            highest = self.max_price.get(ticket, pos.price_open)
+
+            # Only activate trailing stop after price has moved meaningfully
+            if highest - pos.price_open < atr * mult:
+                return False
+
+            trail_price = highest - atr * mult
             return current_price < trail_price
 
-        # SELL position → trail above price
+        # SELL logic
         if pos.type == mt5.ORDER_TYPE_SELL:
-            trail_price = pos.price_open - atr * mult
+            lowest = self.min_price.get(ticket, pos.price_open)
+
+            if pos.price_open - lowest < atr * mult:
+                return False
+
+            trail_price = lowest + atr * mult
             return current_price > trail_price
 
         return False
@@ -211,6 +236,11 @@ class BotEngine:
             # 🔥 CLEANUP: remove max profit tracking for this ticket
             if ticket in self.max_profit:
                 del self.max_profit[ticket]
+            if ticket in self.max_price:
+                del self.max_price[ticket]
+            if ticket in self.min_price:
+                del self.min_price[ticket]
+
 
         else:
             print(f"Failed to close position #{ticket}: {result}")
