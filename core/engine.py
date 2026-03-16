@@ -8,8 +8,12 @@ from core.execution import send_order
 from core.risk import calc_lot_size, can_execute
 import MetaTrader5 as mt5
 from core.logger import setup_logger
-from core.db import get_connection, init_db
+from core.db import get_connection, init_db, log_to_db
+from core.trade_executor import execute_trade
 from scalp_reversal.scalp_reversal_bot import ScalperBot
+from core.ny_open_strategy import NYOpenController
+from core.ny_open_bot import NYOpenBot
+
 
 
 class BotEngine:
@@ -27,6 +31,9 @@ class BotEngine:
         self.max_profit = {}
         self.max_price = {}  # for BUY positions
         self.min_price = {}  # for SELL positions
+        ny_symbols = self.symbol_settings.get("ny_session_symbols", [])
+        self.ny_controller = NYOpenController(settings, ny_symbols)
+        self.ny_bot = NYOpenBot(settings, self.ny_controller)
 
         init_db()
 
@@ -40,9 +47,17 @@ class BotEngine:
         print("Bot started...")
 
         while True:
+            now = self.get_server_time()
+
             for symbol in self.symbols:
                 try:
-                    self.process_symbol(symbol)
+                    if self.ny_controller.should_use_ny_strategy(symbol, now):
+                        # NY session logic
+                        self.ny_bot.process_symbol(symbol, now)
+                    else:
+                        # Normal strategy
+                        self.process_symbol(symbol)
+
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
 
@@ -51,7 +66,15 @@ class BotEngine:
 
             if self.settings['trading']['live_monitoring']:
                 self.monitor_open_positions()
+
             self.wait_until_next_candle()
+
+    def get_server_time(self):
+        tick = mt5.symbol_info_tick(self.symbols[0])
+        if tick is None:
+            # fallback to UTC if something is wrong
+            return datetime.utcnow()
+        return datetime.fromtimestamp(tick.time)
 
     def wait_until_next_candle(self):
         now = datetime.utcnow()
@@ -273,11 +296,11 @@ class BotEngine:
         # check for signals
         if last["long_signal"]:
             action = "BUY"
-            lots, sl, tp, result = self.execute_trade(symbol, "buy", df_ltf, last)
+            lots, sl, tp, result = execute_trade(symbol, "buy", df_ltf, last, self.settings, magic=2)
 
         elif last["short_signal"]:
             action = "SELL"
-            lots, sl, tp, result = self.execute_trade(symbol, "sell", df_ltf, last)
+            lots, sl, tp, result = execute_trade(symbol, "sell", df_ltf, last, self.settings, magic=2)
         else:
             action = "NONE"
             lots = sl = tp = 0
@@ -291,100 +314,100 @@ class BotEngine:
             else:
                 result_text = f"FAILED: retcode={result.retcode}, comment={result.comment}"
 
-        self.log_to_db(symbol, last, df_ltf, action, lots, sl, tp, result_text)
+        log_to_db(symbol, last, df_ltf, action, lots, sl, tp, result_text, self.timeframe)
 
-    def log_to_db(self, symbol, last, df_ltf, action, lots, sl, tp, result):
-        conn = get_connection()
-        c = conn.cursor()
-
-        c.execute("""
-            INSERT INTO logs (
-                timestamp, symbol, timeframe, candle_time,
-                open, high, low, close,
-
-                bullish_engulfing, bearish_engulfing,
-                hammer, shooting_star,
-                morning_star, evening_star,
-
-                bullish_pin_bar, bearish_pin_bar,
-                bullish_three_bar_reversal, bearish_three_bar_reversal,
-                bullish_breakout_bar, bearish_breakout_bar,
-                bullish_inside_bar, bearish_inside_bar,
-
-                doji, outside_bar,
-
-                near_sr, in_demand, in_supply, vol_ok,
-
-                bullish_count, bearish_count,
-                recent_bullish, recent_bearish,
-
-                bias_long, bias_short,
-                htf_ma_fast, htf_ma_slow, htf_ma_fast_slope,
-
-                long_signal, short_signal,
-                trigger_pattern,
-
-                action, lots, sl, tp, result
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            datetime.now().isoformat(),
-            symbol,
-            self.timeframe,
-            df_ltf.index[-1].isoformat(),
-
-            df_ltf["open"].iloc[-1],
-            df_ltf["high"].iloc[-1],
-            df_ltf["low"].iloc[-1],
-            df_ltf["close"].iloc[-1],
-
-            int(last["bullish_engulfing"]),
-            int(last["bearish_engulfing"]),
-            int(last["hammer"]),
-            int(last["shooting_star"]),
-            int(last["morning_star"]),
-            int(last["evening_star"]),
-
-            int(last["bullish_pin_bar"]),
-            int(last["bearish_pin_bar"]),
-            int(last["bullish_three_bar_reversal"]),
-            int(last["bearish_three_bar_reversal"]),
-            int(last["bullish_breakout_bar"]),
-            int(last["bearish_breakout_bar"]),
-            int(last["bullish_inside_bar"]),
-            int(last["bearish_inside_bar"]),
-
-            int(last["doji"]),
-            int(last["outside_bar"]),
-
-            int(last["near_sr"]),
-            int(last["in_demand"]),
-            int(last["in_supply"]),
-            int(last["vol_ok"]),
-
-            int(last["bullish_count"]),
-            int(last["bearish_count"]),
-            int(last["recent_bullish"]),
-            int(last["recent_bearish"]),
-
-            int(last["bias_long"]),
-            int(last["bias_short"]),
-            float(last["htf_ma_fast"]),
-            float(last["htf_ma_slow"]),
-            float(last["htf_ma_fast_slope"]),
-
-            int(last["long_signal"]),
-            int(last["short_signal"]),
-            last["trigger_pattern"],
-
-            action,
-            lots,
-            sl,
-            tp,
-            result
-        ))
-
-        conn.commit()
-        conn.close()
+    # def log_to_db(self, symbol, last, df_ltf, action, lots, sl, tp, result):
+    #     conn = get_connection()
+    #     c = conn.cursor()
+    #
+    #     c.execute("""
+    #         INSERT INTO logs (
+    #             timestamp, symbol, timeframe, candle_time,
+    #             open, high, low, close,
+    #
+    #             bullish_engulfing, bearish_engulfing,
+    #             hammer, shooting_star,
+    #             morning_star, evening_star,
+    #
+    #             bullish_pin_bar, bearish_pin_bar,
+    #             bullish_three_bar_reversal, bearish_three_bar_reversal,
+    #             bullish_breakout_bar, bearish_breakout_bar,
+    #             bullish_inside_bar, bearish_inside_bar,
+    #
+    #             doji, outside_bar,
+    #
+    #             near_sr, in_demand, in_supply, vol_ok,
+    #
+    #             bullish_count, bearish_count,
+    #             recent_bullish, recent_bearish,
+    #
+    #             bias_long, bias_short,
+    #             htf_ma_fast, htf_ma_slow, htf_ma_fast_slope,
+    #
+    #             long_signal, short_signal,
+    #             trigger_pattern,
+    #
+    #             action, lots, sl, tp, result
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #     """, (
+    #         datetime.now().isoformat(),
+    #         symbol,
+    #         self.timeframe,
+    #         df_ltf.index[-1].isoformat(),
+    #
+    #         df_ltf["open"].iloc[-1],
+    #         df_ltf["high"].iloc[-1],
+    #         df_ltf["low"].iloc[-1],
+    #         df_ltf["close"].iloc[-1],
+    #
+    #         int(last["bullish_engulfing"]),
+    #         int(last["bearish_engulfing"]),
+    #         int(last["hammer"]),
+    #         int(last["shooting_star"]),
+    #         int(last["morning_star"]),
+    #         int(last["evening_star"]),
+    #
+    #         int(last["bullish_pin_bar"]),
+    #         int(last["bearish_pin_bar"]),
+    #         int(last["bullish_three_bar_reversal"]),
+    #         int(last["bearish_three_bar_reversal"]),
+    #         int(last["bullish_breakout_bar"]),
+    #         int(last["bearish_breakout_bar"]),
+    #         int(last["bullish_inside_bar"]),
+    #         int(last["bearish_inside_bar"]),
+    #
+    #         int(last["doji"]),
+    #         int(last["outside_bar"]),
+    #
+    #         int(last["near_sr"]),
+    #         int(last["in_demand"]),
+    #         int(last["in_supply"]),
+    #         int(last["vol_ok"]),
+    #
+    #         int(last["bullish_count"]),
+    #         int(last["bearish_count"]),
+    #         int(last["recent_bullish"]),
+    #         int(last["recent_bearish"]),
+    #
+    #         int(last["bias_long"]),
+    #         int(last["bias_short"]),
+    #         float(last["htf_ma_fast"]),
+    #         float(last["htf_ma_slow"]),
+    #         float(last["htf_ma_fast_slope"]),
+    #
+    #         int(last["long_signal"]),
+    #         int(last["short_signal"]),
+    #         last["trigger_pattern"],
+    #
+    #         action,
+    #         lots,
+    #         sl,
+    #         tp,
+    #         result
+    #     ))
+    #
+    #     conn.commit()
+    #     conn.close()
 
     def execute_trade(self, symbol, direction, df, last):
         if not can_execute(symbol, self.settings):
@@ -470,73 +493,5 @@ class BotEngine:
 
         return lots, sl, tp, result
 
-    # def execute_trade(self, symbol, direction, df, last):
-    #     if not can_execute(symbol, self.settings):
-    #         return 0, 0, 0
-    #     # entry = df["close"].iloc[-1]
-    #     tick = mt5.symbol_info_tick(symbol)
-    #     entry = tick.ask if direction == "buy" else tick.bid
-    #     point = mt5.symbol_info(symbol).point
-    #
-    #     demand_zones = last["demand_zones"]
-    #     supply_zones = last["supply_zones"]
-    #
-    #     # --- LONG TRADE ---
-    #     if direction == "buy":
-    #
-    #         # 1. SL = below demand zone
-    #         if last["in_demand"] and len(demand_zones) > 0:
-    #             # find the nearest demand zone
-    #             nearest = min(demand_zones, key=lambda z: abs(entry - z[1]))
-    #             zone_low = nearest[0]
-    #             sl = zone_low - 2 * point  # small buffer
-    #         else:
-    #             # fallback: recent swing low
-    #             sl = df["low"].tail(10).min()
-    #
-    #         # 2. TP = next supply zone
-    #         if len(supply_zones) > 0:
-    #             # find supply zone above price
-    #             above = [z for z in supply_zones if z[0] > entry]
-    #             if len(above) > 0:
-    #                 next_supply = min(above, key=lambda z: z[0])
-    #                 tp = next_supply[0]
-    #             else:
-    #                 # fallback: 2R
-    #                 tp = entry + 2 * (entry - sl)
-    #         else:
-    #             tp = entry + 2 * (entry - sl)
-    #
-    #     # --- SHORT TRADE ---
-    #     else:
-    #
-    #         # 1. SL = above supply zone
-    #         if last["in_supply"] and len(supply_zones) > 0:
-    #             nearest = min(supply_zones, key=lambda z: abs(entry - z[0]))
-    #             zone_high = nearest[1]
-    #             sl = zone_high + 2 * point
-    #         else:
-    #             sl = df["high"].tail(10).max()
-    #
-    #         # 2. TP = next demand zone
-    #         if len(demand_zones) > 0:
-    #             below = [z for z in demand_zones if z[1] < entry]
-    #             if len(below) > 0:
-    #                 next_demand = max(below, key=lambda z: z[1])
-    #                 tp = next_demand[1]
-    #             else:
-    #                 tp = entry - 2 * (sl - entry)
-    #         else:
-    #             tp = entry - 2 * (sl - entry)
-    #
-    #     # risk-based lot size
-    #     balance = mt5.account_info().equity
-    #     risk_per_trade = self.settings["trading"]["risk_per_trade"]
-    #
-    #     lots = calc_lot_size(symbol, balance, risk_per_trade, entry, sl)
-    #
-    #     send_order(symbol, direction, lots, sl, tp, last)
-    #
-    #     return lots, sl, tp
 
 

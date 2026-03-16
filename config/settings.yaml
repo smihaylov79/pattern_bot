@@ -28,3 +28,12 @@ monitoring:
   max_trade_duration_sec: 600
   atr_multiplier: 1.2
   min_profit_for_decay: 5.0
+
+ny_open_strategy:
+  enabled: true
+  ny_open_time: "16:30"     # server time
+  no_trade_minutes: 15
+  max_duration_minutes: 180
+  breakout_resolution_atr: 2.0
+  min_bars_outside_range: 3
+

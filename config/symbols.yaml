@@ -11,6 +11,11 @@ symbols:
   - "COPPER"
   - "SILVER"
 
+ny_session_symbols:
+  - "[SP500]"
+  - "US100"
+  - "EURUSD"
+
 symbol_settings:
 
   "[SP500]":
