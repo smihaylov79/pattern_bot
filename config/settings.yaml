@@ -31,7 +31,7 @@ monitoring:
 
 ny_open_strategy:
   enabled: true
-  ny_open_time: "16:30"     # server time
+  ny_open_time: "15:30"     # server time
   no_trade_minutes: 15
   max_duration_minutes: 180
   breakout_resolution_atr: 2.0
